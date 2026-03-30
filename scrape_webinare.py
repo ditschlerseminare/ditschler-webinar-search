@@ -1,7 +1,6 @@
 import json
 import re
-import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 URL = "https://www.ditschler-seminare.de/seminare-webinare/seminarprogramm/"
 
@@ -26,28 +25,20 @@ def infer_topic(text: str) -> str:
             return topic
     return "Sonstiges"
 
+def get_page_text() -> str:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+        )
+        page.goto(URL, wait_until="networkidle", timeout=60000)
+        text = page.locator("body").inner_text()
+        browser.close()
+        return text
+
 def scrape():
-    response = requests.get(
-        URL,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=30,
-    )
-    response.raise_for_status()
+    text = get_page_text()
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    text = soup.get_text("\n", strip=True)
-
-    # Reale Seite enthält Blöcke wie:
-    # TITLE
-    # Mehr Informationen
-    # ...
-    # Webinar
-    # TITLE
-    # Termine zur Auswahl:
-    # 21.04.2026, 9 - 12 Uhr, Webinar-Nr. 506 Jetzt anmelden
-    # Beschreibung:
-    # ...
-    # Dozent:
     pattern = re.compile(
         r"(?P<title>[^\n]+)\nMehr Informationen.*?"
         r"\nWebinar\n(?P<title2>[^\n]+)\n"
@@ -86,10 +77,7 @@ def scrape():
                 date_lines.append(line)
 
         block_text = match.group(0)
-        price_match = re.search(
-            r"Die Seminargebühr beträgt jeweils\s*([0-9]+,[0-9]{2})\s*€",
-            block_text
-        )
+        price_match = re.search(r"Die Seminargebühr beträgt jeweils\s*([0-9]+,[0-9]{2})\s*€", block_text)
         price = f"{price_match.group(1)} €" if price_match else ""
 
         topic = infer_topic(f"{title} {desc}")
@@ -108,9 +96,7 @@ def scrape():
             "dateText": " | ".join(date_lines),
             "tags": tags,
             "url": URL,
-            "searchText": normalize(
-                " ".join([title, topic, desc, " ".join(tags), number, " | ".join(date_lines)])
-            ).lower(),
+            "searchText": normalize(" ".join([title, topic, desc, " ".join(tags), number, " | ".join(date_lines)])).lower(),
         })
 
     webinars.sort(key=lambda x: (x["topic"], x["title"].lower()))
