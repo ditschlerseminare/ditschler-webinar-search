@@ -3,7 +3,10 @@ name: Refresh webinar JSON
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"   # täglich um 06:00 Uhr
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: write
 
 jobs:
   refresh:
@@ -12,11 +15,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
