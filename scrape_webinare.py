@@ -1,92 +1,58 @@
 import json
-import re
-from dataclasses import dataclass, asdict
-from typing import List
 import requests
 from bs4 import BeautifulSoup
 
 URL = "https://www.ditschler-seminare.de/seminare-webinare/seminarprogramm/"
-OUT = "webinare.json"
-
-@dataclass
-class Webinar:
-    id: str
-    type: str
-    title: str
-    number: str
-    topic: str
-    description: str
-    price: str
-    dateText: str
-    tags: List[str]
-    url: str
-    searchText: str
-
-TOPIC_RULES = [
-    ("Excel / Office", ["excel"]),
-    ("WfbM / Werkstatt", ["wfbm", "werkstatt"]),
-    ("BTHG / Eingliederungshilfe", ["eingliederungshilfe", "bthg"]),
-    ("Betreuungsrecht", ["betreu"]),
-    ("Pflege / SGB XI", ["pflege"]),
-    ("TVöD / TV-L", ["tvöd", "tv-l"]),
-    ("Arbeitsrecht", ["arbeitsrecht"]),
-    ("Sozialrecht", ["sozialrecht"]),
-]
-
-def normalize(text):
-    return re.sub(r"\s+", " ", text or "").strip()
-
-def infer_topic(text):
-    t = text.lower()
-    for topic, keys in TOPIC_RULES:
-        if any(k in t for k in keys):
-            return topic
-    return "Sonstiges"
 
 def scrape():
-    html = requests.get(URL).text
+    html = requests.get(URL, headers={"User-Agent": "Mozilla/5.0"}).text
     soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text("\n", strip=True)
-
-    pattern = re.compile(
-        r"(?P<title>[^\n]+)\nMehr Informationen.*?Termine zur Auswahl:\n"
-        r"(?P<dates>.*?)\nBeschreibung:\n"
-        r"(?P<desc>.*?)(?:\nDozent:|\nDurchführung mit ZOOM\.|\nDie Seminargebühr beträgt)",
-        re.S,
-    )
 
     webinars = []
-    for m in pattern.finditer(text):
-        title = normalize(m.group("title"))
-        desc = normalize(m.group("desc"))
-        dates = normalize(m.group("dates"))
 
-        numbers = re.findall(r"Webinar-Nr\.\s*([0-9/ ]+)", dates)
-        if not numbers:
+    # Alle Textblöcke durchgehen
+    text_blocks = soup.get_text("\n").split("\n")
+
+    current_title = None
+
+    for line in text_blocks:
+        line = line.strip()
+
+        if not line:
             continue
 
-        number = numbers[0].strip()
+        # Titel erkennen (groß + keine Standardtexte)
+        if len(line) > 20 and "Webinar" not in line and "Mehr Informationen" not in line:
+            current_title = line
 
-        webinars.append({
-            "id": f"webinar-{number}",
-            "type": "Webinar",
-            "title": title,
-            "number": number,
-            "topic": infer_topic(title + " " + desc),
-            "description": desc,
-            "price": "",
-            "dateText": dates,
-            "tags": [],
-            "url": URL,
-            "searchText": (title + " " + desc).lower()
-        })
+        # Webinar Nummer erkennen
+        if "Webinar-Nr." in line and current_title:
+            number = line.split("Webinar-Nr.")[-1].strip()
+
+            webinars.append({
+                "id": f"webinar-{number}",
+                "type": "Webinar",
+                "title": current_title,
+                "number": number,
+                "topic": "",
+                "description": "",
+                "price": "",
+                "dateText": "",
+                "tags": [],
+                "url": URL,
+                "searchText": current_title.lower()
+            })
 
     return webinars
 
+
 def main():
     data = scrape()
-    with open(OUT, "w", encoding="utf-8") as f:
+    print(f"Gefunden: {len(data)} Webinare")
+
+    with open("webinare.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 if __name__ == "__main__":
     main()
